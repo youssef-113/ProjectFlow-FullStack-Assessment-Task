@@ -1,100 +1,175 @@
-# Bug Report: ProjectFlow Task Security & Concurrency Vulnerabilities
+﻿# Bug Report: Task Mutation Authorization
 
 ## Overview
 
-This report details the findings from the investigation into reported production issues regarding unauthorized task modifications and data consistency concerns within ProjectFlow.
+This report documents the investigation into the reported production issue:
+
+> Some users appear to be able to modify tasks belonging to projects they are not members of.
+
+All three existing task mutation endpoints were audited against the actual source code.
+The results are recorded below, distinguishing **confirmed vulnerabilities** from **endpoints already protected**.
 
 ---
 
-## Bug 1: Unauthorized Task Status Modification (Authorization Bypass)
+## Audit Summary
+
+| Endpoint | Authenticated? | Resolves task? | Checks project access? | Verdict |
+|---|---|---|---|---|
+| `PATCH /tasks/:taskId` | Yes | Yes | Yes — `assertCanView` + creator check | Already protected |
+| `DELETE /tasks/:taskId` | Yes | Yes | Yes — `assertCanManage` | Already protected |
+| `PATCH /tasks/:taskId/status` | Yes | Yes | **No — none** | **Confirmed vulnerable** |
+
+---
+
+## Bug 1 — Unauthorized Task Status Modification (Confirmed Vulnerability)
 
 ### Description
-Users are able to modify the status of tasks belonging to projects they are not members of, nor authorized to access.
+
+Any authenticated user — including users who belong to a completely different organization — could
+change the status of any task by calling `PATCH /tasks/:taskId/status` directly with a valid JWT.
+The frontend hides this control from unauthorized users, but the backend performed no authorization
+check, making the frontend restriction trivially bypassable via a direct API call.
 
 ### Severity
-**HIGH (Security Vulnerability - Broken Access Control / Insecure Direct Object Reference)**
 
-### Affected Code Locations
-* [`apps/api/src/tasks/tasks.controller.ts:70-76`](file:///mnt/F/projects/Fullstack-task/ProjectFlow-FullStack-Assessment-Task/apps/api/src/tasks/tasks.controller.ts#L70-L76)
-* [`apps/api/src/tasks/tasks.service.ts:116-123`](file:///mnt/F/projects/Fullstack-task/ProjectFlow-FullStack-Assessment-Task/apps/api/src/tasks/tasks.service.ts#L116-L123)
+**HIGH — Broken Access Control / Insecure Direct Object Reference (OWASP A01)**
 
-### Root Cause Analysis
-In `TasksController`, the `@Patch('tasks/:taskId/status')` endpoint does not extract the authenticated user's ID via the `@CurrentUser('id')` decorator. Furthermore, `TasksService.updateStatus` fetches the target task by ID and updates its `status` field directly without performing any authorization checks via `ProjectAccessService`.
+### Affected Code
+
+- `apps/api/src/tasks/tasks.controller.ts` — `updateStatus` handler, lines 70–76 (before fix)
+- `apps/api/src/tasks/tasks.service.ts` — `updateStatus` method, lines 117–124 (before fix)
+
+### Root Cause
+
+The `updateStatus` controller handler did **not** extract `@CurrentUser('id')`, so no user
+identity was available to authorize the request. The service method accepted only
+`(taskId, dto)` — it fetched the task and saved the new status without calling
+`ProjectAccessService` at all.
+
+**Vulnerable controller (before fix):**
 
 ```ts
-// Existing vulnerable code in TasksController:
 @Patch('tasks/:taskId/status')
 updateStatus(
   @Param('taskId') taskId: string,
   @Body() dto: UpdateTaskStatusDto,
 ): Promise<TaskDetail> {
   return this.tasksService.updateStatus(toObjectId(taskId, 'task id'), dto);
+  //                                    no userId — authorization impossible
 }
+```
 
-// Existing vulnerable code in TasksService:
+**Vulnerable service (before fix):**
+
+```ts
 async updateStatus(taskId: Types.ObjectId, dto: UpdateTaskStatusDto): Promise<TaskDetail> {
   const task = await this.findTaskOrFail(taskId);
-
+  // no projectAccessService call — any authenticated user proceeds
   task.status = dto.status;
   await task.save();
-
   return this.toDetail(task);
 }
 ```
 
 ### Steps to Reproduce
-1. Log in as **User A** (who belongs to Project A).
-2. Create a task in Project A with `taskId` = `660000000000000000000001`.
-3. Log in as **User B** (who is NOT a member of Project A and has no access to Project A).
-4. Send a `PATCH /tasks/660000000000000000000001/status` request with header `Authorization: Bearer <User_B_JWT>` and payload `{"status": "DONE"}`.
-5. **Observed Result:** HTTP 200 OK. User B successfully modifies the task status in Project A despite having no project permissions.
-6. **Expected Result:** HTTP 403 Forbidden.
 
-### Remediation Plan
-1. Update `TasksController.updateStatus` to inject `@CurrentUser('id') userId: string`.
-2. Update `TasksService.updateStatus` to call `await this.projectAccessService.assertCanView(task.projectId, userId)` before allowing status mutation.
-3. Add automated E2E test coverage verifying that non-project members receive HTTP 403 when attempting to update task status.
+1. Register **User A** and **User B** (User B has no relationship to User A's project).
+2. Authenticate as User A and create a task in Project A. Note the `taskId`.
+3. Authenticate as User B.
+4. `PATCH /tasks/<taskId>/status` with `Authorization: Bearer <User_B_JWT>` and body `{"status":"DONE"}`.
+5. **Observed result (before fix):** HTTP 200 OK — task status changed despite User B having no project access.
+6. **Expected result:** HTTP 403 Forbidden — task unchanged.
 
----
+### Security / Business Impact
 
-## Bug 2: Task Number Race Condition During Concurrent Task Creation
+- Any authenticated user could change the status of any task in the system.
+- Malicious actors could advance or regress any workflow state, disrupting project management across all organizations.
+- Frontend access controls were the only restriction — easily bypassed via direct API calls.
 
-### Description
-When multiple tasks are created concurrently for the same project, duplicate task numbers (e.g., two tasks with key `ENG-1`) can be generated.
+### Fix
 
-### Severity
-**MEDIUM (Data Integrity Violation)**
+**Authorization level chosen:** `assertCanView` — consistent with the existing `update` endpoint.
+Status updates are a normal task operation for all project members; only project access (not
+management permission) is required.
 
-### Affected Code Locations
-* [`apps/api/src/tasks/tasks.service.ts:61-62`](file:///mnt/F/projects/Fullstack-task/ProjectFlow-FullStack-Assessment-Task/apps/api/src/tasks/tasks.service.ts#L61-L62)
-
-### Root Cause Analysis
-`TasksService.create` calculates the task number by counting existing documents in the project and adding 1:
+**Controller fix — add `@CurrentUser('id') userId` and pass it to the service:**
 
 ```ts
-const taskCount = await this.taskModel.countDocuments({ projectId });
-const number = taskCount + 1;
+@Patch('tasks/:taskId/status')
+updateStatus(
+  @Param('taskId') taskId: string,
+  @CurrentUser('id') userId: string,
+  @Body() dto: UpdateTaskStatusDto,
+): Promise<TaskDetail> {
+  return this.tasksService.updateStatus(
+    toObjectId(taskId, 'task id'),
+    toObjectId(userId, 'user id'),
+    dto,
+  );
+}
 ```
 
-Because `countDocuments` and `taskModel.create` are separate, non-atomic database operations, two concurrent creation requests read the same initial count and assign identical numbers and task keys.
+**Service fix — add `userId` parameter and call `assertCanView` before mutating:**
 
-### Steps to Reproduce
-1. Send two simultaneous `POST /projects/:projectId/tasks` requests with valid task payloads.
-2. **Observed Result:** Both requests receive the same task number and key (e.g., both receive `number: 1`, `key: "ENG-1"`).
-3. **Expected Result:** Tasks receive unique, strictly sequential numbers (e.g., `ENG-1` and `ENG-2`).
+```ts
+async updateStatus(
+  taskId: Types.ObjectId,
+  userId: Types.ObjectId,
+  dto: UpdateTaskStatusDto,
+): Promise<TaskDetail> {
+  const task = await this.findTaskOrFail(taskId);
+  const { project } = await this.projectAccessService.assertCanView(task.projectId, userId);
+  task.status = dto.status;
+  await task.save();
+  return this.toDetail(task, project);
+}
+```
 
-### Remediation Plan
-1. Add a unique compound index `{ projectId: 1, number: 1 }` to `TaskSchema` to enforce database-level uniqueness.
-2. Implement an atomic counter schema/sequence document (or atomic increment pattern) to safely allocate sequential numbers per project under high concurrency.
-3. Add automated E2E/concurrency tests simulating parallel task creation requests.
+`assertCanView` throws `ForbiddenException` if the user is neither an organization OWNER/ADMIN
+nor an explicit project member. The task's own `projectId` determines which project the access
+check applies to — the client cannot supply an alternative project ID.
 
 ---
 
-## Summary of Planned Code Changes
+## Audited and Already Protected Endpoints
 
-| Issue | File | Fix Strategy |
-| :--- | :--- | :--- |
-| **Unauthorized Status Update** | [`tasks.controller.ts`](file:///mnt/F/projects/Fullstack-task/ProjectFlow-FullStack-Assessment-Task/apps/api/src/tasks/tasks.controller.ts) | Inject `@CurrentUser('id') userId: string` into `updateStatus` method. |
-| **Unauthorized Status Update** | [`tasks.service.ts`](file:///mnt/F/projects/Fullstack-task/ProjectFlow-FullStack-Assessment-Task/apps/api/src/tasks/tasks.service.ts) | Enforce `projectAccessService.assertCanView(task.projectId, userId)` in `updateStatus`. |
-| **Concurrent Task Numbering** | [`tasks.service.ts`](file:///mnt/F/projects/Fullstack-task/ProjectFlow-FullStack-Assessment-Task/apps/api/src/tasks/tasks.service.ts) / [`task.schema.ts`](file:///mnt/F/projects/Fullstack-task/ProjectFlow-FullStack-Assessment-Task/apps/api/src/tasks/schemas/task.schema.ts) | Introduce atomic sequence mechanism and database compound unique index. |
-| **Regression Testing** | [`apps/api/test/tasks.e2e.spec.ts`](file:///mnt/F/projects/Fullstack-task/ProjectFlow-FullStack-Assessment-Task/apps/api/test/tasks.e2e.spec.ts) | Add E2E tests for task status authorization & task number uniqueness. |
+### `PATCH /tasks/:taskId` — update
+
+- Extracts `@CurrentUser('id') userId` in the controller.
+- Service calls `assertCanView(task.projectId, userId)` first.
+- Secondary check: only project managers / org admins / the task creator may edit task fields.
+- **No vulnerability found.**
+
+### `DELETE /tasks/:taskId` — remove
+
+- Extracts `@CurrentUser('id') userId` in the controller.
+- Service calls `assertCanManage(task.projectId, userId)` — correctly requires elevated permission for deletion.
+- **No vulnerability found.**
+
+---
+
+## Regression Tests Added
+
+File: `apps/api/test/tasks.e2e.spec.ts` — nested `describe('task mutation authorization')`
+
+| Test | Covers |
+|---|---|
+| Authorized member can update task title | Happy path for `PATCH /tasks/:taskId` |
+| Outsider receives 403 on update; task unchanged | Unauthorized `PATCH /tasks/:taskId` |
+| Outsider receives 403 on delete; task still exists | Unauthorized `DELETE /tasks/:taskId` |
+| Authorized member can change task status | Happy path for `PATCH /tasks/:taskId/status` |
+| Outsider receives 403 on status change; status unchanged | **Core regression for confirmed vulnerability** |
+| Owner (OWNER org role) can delete a task; task then 404s | Confirms org-level OWNER access still works |
+
+---
+
+## Verification Result
+
+After applying the fix: typecheck, lint, all tests, and build pass.
+
+---
+
+## Bug 2 — Task Number Race Condition (Previously Documented)
+
+This is a separate data integrity issue. The concurrency fix (atomic `taskSequenceModel` counter)
+was already implemented before this audit and is covered by the existing concurrent-creation test.
