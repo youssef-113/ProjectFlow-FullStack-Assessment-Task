@@ -85,6 +85,22 @@ export interface Paginated<T> {
   pageSize: number;
 }
 
+export interface TaskActivityItem {
+  id: string;
+  type: string;
+  actor: {
+    id: string;
+    name: string;
+  };
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface TaskActivityResponse {
+  items: TaskActivityItem[];
+  nextCursor: string | null;
+}
+
 /** Shape produced by the API's exception filter for every non-2xx response. */
 export interface ApiErrorBody {
   statusCode: number;

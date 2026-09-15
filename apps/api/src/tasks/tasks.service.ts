@@ -1,7 +1,7 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { type FilterQuery, Model, Types } from 'mongoose';
-import type { Paginated, TaskDetail, TaskSummary } from '@projectflow/shared';
+import type { Paginated, TaskActivityResponse, TaskDetail, TaskSummary } from '@projectflow/shared';
 import { toUserSummary } from '../common/utils/serialize';
 import { Comment, type CommentDocument } from '../comments/schemas/comment.schema';
 import { canManage, ProjectAccessService } from '../projects/project-access.service';
@@ -9,10 +9,16 @@ import { Project, type ProjectDocument } from '../projects/schemas/project.schem
 import { ProjectMembersService } from '../project-members/project-members.service';
 import { UsersService } from '../users/users.service';
 import type { CreateTaskDto } from './dto/create-task.dto';
+import type { ListActivityQueryDto } from './dto/list-activity.dto';
 import type { ListTasksQueryDto } from './dto/list-tasks.dto';
 import type { UpdateTaskAssigneeDto } from './dto/update-task-assignee.dto';
 import type { UpdateTaskDto } from './dto/update-task.dto';
 import type { UpdateTaskStatusDto } from './dto/update-task-status.dto';
+import {
+  TaskActivity,
+  type TaskActivityDocument,
+  TaskActivityType,
+} from './schemas/task-activity.schema';
 import { Task, type TaskDocument } from './schemas/task.schema';
 import { TaskSequence, type TaskSequenceDocument } from './schemas/task-sequence.schema';
 
@@ -22,6 +28,7 @@ export class TasksService {
   constructor(
     @InjectModel(Task.name) private readonly taskModel: Model<TaskDocument>,
     @InjectModel(TaskSequence.name) private readonly taskSequenceModel: Model<TaskSequenceDocument>,
+    @InjectModel(TaskActivity.name) private readonly taskActivityModel: Model<TaskActivityDocument>,
     @InjectModel(Project.name) private readonly projectModel: Model<ProjectDocument>,
     @InjectModel(Comment.name) private readonly commentModel: Model<CommentDocument>,
     private readonly projectAccessService: ProjectAccessService,
@@ -143,10 +150,26 @@ export class TasksService {
     const task = await this.findTaskOrFail(taskId);
     const access = await this.projectAccessService.assertCanView(task.projectId, actorId);
 
+    // Capture previous assignee before any mutation.
+    const previousAssignee = task.assignee ?? null;
+
     if (dto.assigneeId === null) {
       // Unassignment: any project member may remove the assignee.
+      // Skip if already unassigned — no change, no activity.
+      if (previousAssignee === null) {
+        return this.toDetail(task, access.project);
+      }
+
       task.assignee = null;
       await task.save();
+
+      await this.taskActivityModel.create({
+        taskId: task._id,
+        actorId,
+        type: TaskActivityType.TASK_ASSIGNEE_CHANGED,
+        metadata: { from: previousAssignee.toString(), to: null },
+      });
+
       return this.toDetail(task, access.project);
     }
 
@@ -160,14 +183,85 @@ export class TasksService {
     // Verify the assignee is a member of this project.
     const assigneeRole = await this.projectMembersService.findRole(task.projectId, assigneeId);
     if (assigneeRole === null) {
-      // Also covers the case where the user doesn't exist — they would have no role.
       throw new ForbiddenException('The assignee must be a member of this project');
+    }
+
+    // Skip if the assignee is not changing — no mutation, no activity.
+    if (previousAssignee !== null && assigneeId.equals(previousAssignee)) {
+      return this.toDetail(task, access.project);
     }
 
     task.assignee = assigneeId;
     await task.save();
 
+    await this.taskActivityModel.create({
+      taskId: task._id,
+      actorId,
+      type: TaskActivityType.TASK_ASSIGNEE_CHANGED,
+      metadata: {
+        from: previousAssignee ? previousAssignee.toString() : null,
+        to: assigneeId.toString(),
+      },
+    });
+
     return this.toDetail(task, access.project);
+  }
+
+  async findActivity(
+    taskId: Types.ObjectId,
+    userId: Types.ObjectId,
+    query: ListActivityQueryDto,
+  ): Promise<TaskActivityResponse> {
+    const task = await this.findTaskOrFail(taskId);
+    await this.projectAccessService.assertCanView(task.projectId, userId);
+
+    // Build query with optional cursor pagination
+    const queryBuilder = this.taskActivityModel.find({ taskId });
+
+    if (query.cursor) {
+      const [cursorCreatedAt, cursorId] = query.cursor.split('_');
+      queryBuilder.where('createdAt').lt(new Date(cursorCreatedAt));
+      if (cursorId) {
+        queryBuilder.where('_id').lt(new Types.ObjectId(cursorId));
+      }
+    }
+
+    const activities = await queryBuilder
+      .sort({ createdAt: -1, _id: -1 })
+      .limit(query.limit + 1) // Fetch one extra to determine if there are more results
+      .exec();
+
+    // Determine if there are more results
+    const hasMore = activities.length > query.limit;
+    const items = hasMore ? activities.slice(0, query.limit) : activities;
+
+    // Generate next cursor if there are more results
+    let nextCursor: string | null = null;
+    if (hasMore && items.length > 0) {
+      const lastItem = items[items.length - 1];
+      nextCursor = `${lastItem.createdAt.toISOString()}_${lastItem._id.toString()}`;
+    }
+
+    // Populate actor information
+    const actorIds = items.map((activity) => activity.actorId);
+    const users = await this.usersService.findManyByIds(actorIds);
+    const usersById = new Map(users.map((user) => [user._id.toString(), user]));
+
+    const activityItems = items.map((activity) => ({
+      id: activity._id.toString(),
+      type: activity.type,
+      actor: {
+        id: activity.actorId.toString(),
+        name: usersById.get(activity.actorId.toString())?.name ?? 'Unknown user',
+      },
+      metadata: activity.metadata,
+      createdAt: activity.createdAt.toISOString(),
+    }));
+
+    return {
+      items: activityItems,
+      nextCursor,
+    };
   }
 
   async findTaskOrFail(taskId: Types.ObjectId): Promise<TaskDocument> {

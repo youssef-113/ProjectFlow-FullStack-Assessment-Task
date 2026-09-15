@@ -9,6 +9,7 @@ import { formatDate } from '@/lib/format';
 import { useTask } from '../hooks';
 import { TaskPriorityBadge } from './task-priority-badge';
 import { TaskStatusSelect } from './task-status-select';
+import { AssigneeSelect } from './assignee-select';
 
 interface TaskViewProps {
   projectId: string;
@@ -84,6 +85,13 @@ export function TaskView({ projectId, taskId }: TaskViewProps) {
               Priority
             </h2>
             <TaskPriorityBadge priority={task.priority} />
+          </div>
+
+          <div className="space-y-1.5">
+            <h2 className="text-[11px] font-medium uppercase tracking-wide text-subtle-foreground">
+              Assignee
+            </h2>
+            <AssigneeSelect taskId={task.id} projectId={projectId} assignee={task.assignee ?? null} />
           </div>
 
           <div className="space-y-1.5">

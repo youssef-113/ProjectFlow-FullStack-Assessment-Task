@@ -10,6 +10,7 @@ import {
   fetchTask,
   updateTaskStatus,
 } from './api';
+import { updateTaskAssignee } from './api';
 
 export function useProjectTasks(projectId: string) {
   return useQuery<Paginated<TaskSummary>>({
@@ -46,6 +47,18 @@ export function useUpdateTaskStatus(taskId: string, projectId: string) {
 
   return useMutation<TaskDetail, Error, TaskStatus>({
     mutationFn: (status) => updateTaskStatus(taskId, status),
+    onSuccess: async (task) => {
+      queryClient.setQueryData(queryKeys.task(taskId), task);
+      await queryClient.invalidateQueries({ queryKey: queryKeys.projectTasks(projectId) });
+    },
+  });
+}
+
+export function useUpdateTaskAssignee(taskId: string, projectId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation<TaskDetail, Error, string | null>({
+    mutationFn: (assigneeId) => updateTaskAssignee(taskId, assigneeId ?? null),
     onSuccess: async (task) => {
       queryClient.setQueryData(queryKeys.task(taskId), task);
       await queryClient.invalidateQueries({ queryKey: queryKeys.projectTasks(projectId) });
