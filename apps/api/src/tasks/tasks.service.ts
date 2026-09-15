@@ -6,13 +6,16 @@ import { toUserSummary } from '../common/utils/serialize';
 import { Comment, type CommentDocument } from '../comments/schemas/comment.schema';
 import { canManage, ProjectAccessService } from '../projects/project-access.service';
 import { Project, type ProjectDocument } from '../projects/schemas/project.schema';
+import { ProjectMembersService } from '../project-members/project-members.service';
 import { UsersService } from '../users/users.service';
 import type { CreateTaskDto } from './dto/create-task.dto';
 import type { ListTasksQueryDto } from './dto/list-tasks.dto';
+import type { UpdateTaskAssigneeDto } from './dto/update-task-assignee.dto';
 import type { UpdateTaskDto } from './dto/update-task.dto';
 import type { UpdateTaskStatusDto } from './dto/update-task-status.dto';
 import { Task, type TaskDocument } from './schemas/task.schema';
 import { TaskSequence, type TaskSequenceDocument } from './schemas/task-sequence.schema';
+
 
 @Injectable()
 export class TasksService {
@@ -22,6 +25,7 @@ export class TasksService {
     @InjectModel(Project.name) private readonly projectModel: Model<ProjectDocument>,
     @InjectModel(Comment.name) private readonly commentModel: Model<CommentDocument>,
     private readonly projectAccessService: ProjectAccessService,
+    private readonly projectMembersService: ProjectMembersService,
     private readonly usersService: UsersService,
   ) {}
 
@@ -131,6 +135,41 @@ export class TasksService {
     await Promise.all([this.commentModel.deleteMany({ taskId: task._id }), task.deleteOne()]);
   }
 
+  async assignTask(
+    taskId: Types.ObjectId,
+    actorId: Types.ObjectId,
+    dto: UpdateTaskAssigneeDto,
+  ): Promise<TaskDetail> {
+    const task = await this.findTaskOrFail(taskId);
+    const access = await this.projectAccessService.assertCanView(task.projectId, actorId);
+
+    if (dto.assigneeId === null) {
+      // Unassignment: any project member may remove the assignee.
+      task.assignee = null;
+      await task.save();
+      return this.toDetail(task, access.project);
+    }
+
+    const assigneeId = new Types.ObjectId(dto.assigneeId);
+
+    // Regular MEMBERs may only assign themselves.
+    if (!canManage(access) && !assigneeId.equals(actorId)) {
+      throw new ForbiddenException('Members can only assign tasks to themselves');
+    }
+
+    // Verify the assignee is a member of this project.
+    const assigneeRole = await this.projectMembersService.findRole(task.projectId, assigneeId);
+    if (assigneeRole === null) {
+      // Also covers the case where the user doesn't exist — they would have no role.
+      throw new ForbiddenException('The assignee must be a member of this project');
+    }
+
+    task.assignee = assigneeId;
+    await task.save();
+
+    return this.toDetail(task, access.project);
+  }
+
   async findTaskOrFail(taskId: Types.ObjectId): Promise<TaskDocument> {
     const task = await this.taskModel.findById(taskId).exec();
     if (!task) {
@@ -144,8 +183,18 @@ export class TasksService {
       return [];
     }
 
-    const [creators, commentRows] = await Promise.all([
-      this.usersService.findManyByIds(tasks.map((task) => task.createdBy)),
+    // Collect all user IDs we need: creators + assignees (deduped).
+    const assigneeIds = tasks
+      .map((t) => t.assignee)
+      .filter((id): id is Types.ObjectId => id != null);
+
+    const allUserIds = [
+      ...tasks.map((t) => t.createdBy),
+      ...assigneeIds,
+    ];
+
+    const [users, commentRows] = await Promise.all([
+      this.usersService.findManyByIds(allUserIds),
       this.commentModel
         .aggregate<{
           _id: Types.ObjectId;
@@ -157,7 +206,7 @@ export class TasksService {
         .exec(),
     ]);
 
-    const creatorsById = new Map(creators.map((user) => [user._id.toString(), user]));
+    const usersById = new Map(users.map((user) => [user._id.toString(), user]));
     const commentCounts = new Map(commentRows.map((row) => [row._id.toString(), row.count]));
 
     return tasks.map((task) => ({
@@ -169,7 +218,8 @@ export class TasksService {
       status: task.status,
       priority: task.priority,
       commentCount: commentCounts.get(task._id.toString()) ?? 0,
-      createdBy: toCreatorSummary(creatorsById.get(task.createdBy.toString())),
+      createdBy: toUserSummaryOrDeleted(usersById.get(task.createdBy.toString())),
+      assignee: task.assignee ? toUserSummaryOrNull(usersById.get(task.assignee.toString())) : null,
       createdAt: task.createdAt.toISOString(),
       updatedAt: task.updatedAt.toISOString(),
     }));
@@ -235,6 +285,12 @@ const DELETED_USER = {
   avatarUrl: null,
 };
 
-function toCreatorSummary(user: Parameters<typeof toUserSummary>[0] | undefined) {
+/** Returns a user summary or a deleted-user sentinel (for createdBy, which is always set). */
+function toUserSummaryOrDeleted(user: Parameters<typeof toUserSummary>[0] | undefined) {
   return user ? toUserSummary(user) : DELETED_USER;
+}
+
+/** Returns a user summary or null (for assignee, which can legitimately be absent). */
+function toUserSummaryOrNull(user: Parameters<typeof toUserSummary>[0] | undefined) {
+  return user ? toUserSummary(user) : null;
 }

@@ -273,4 +273,145 @@ describe('Tasks', () => {
         .expect(404);
     });
   });
+
+  // ── Assignment tests ────────────────────────────────────────────────────────
+
+  describe('task assignment', () => {
+    let taskId: string;
+    let manager: TestUser;
+
+    beforeEach(async () => {
+      // Add a PROJECT_MANAGER to the project for elevated-role tests.
+      manager = await registerUser(app, 'Project Manager', 'manager@example.com');
+      await addOrganizationMember(connection, /* need orgId */ await getOrgId(), manager.id, OrganizationRole.MEMBER);
+      await addProjectMember(connection, projectId, manager.id, ProjectRole.PROJECT_MANAGER);
+
+      taskId = await createTask(connection, projectId, 'ENG', 2, 'Assignment test task', owner.id);
+    });
+
+    // Helper: retrieve the current organizationId from the project fixture.
+    // We store it during setup — easier to just re-derive from the existing connection.
+    async function getOrgId(): Promise<string> {
+      const project = await connection.collection('projects').findOne({});
+      return project!.organizationId.toString();
+    }
+
+    // Test 1 — Member assigns self
+    it('allows a project member to assign themselves', async () => {
+      const response = await request(app.getHttpServer())
+        .patch(`/tasks/${taskId}/assignee`)
+        .set('Authorization', authHeader(member))
+        .send({ assigneeId: member.id })
+        .expect(200);
+
+      expect(response.body.assignee).toMatchObject({ email: 'magd@example.com' });
+    });
+
+    // Test 2 — Elevated role (PROJECT_MANAGER) assigns another member
+    it('allows a project manager to assign another project member', async () => {
+      const response = await request(app.getHttpServer())
+        .patch(`/tasks/${taskId}/assignee`)
+        .set('Authorization', authHeader(manager))
+        .send({ assigneeId: member.id })
+        .expect(200);
+
+      expect(response.body.assignee).toMatchObject({ email: 'magd@example.com' });
+    });
+
+    // Test 2b — OWNER (elevated org role) assigns another member
+    it('allows the org owner to assign another project member', async () => {
+      const response = await request(app.getHttpServer())
+        .patch(`/tasks/${taskId}/assignee`)
+        .set('Authorization', authHeader(owner))
+        .send({ assigneeId: member.id })
+        .expect(200);
+
+      expect(response.body.assignee).toMatchObject({ email: 'magd@example.com' });
+    });
+
+    // Test 3 — Regular MEMBER cannot assign another member
+    it('prevents a regular member from assigning another member', async () => {
+      await request(app.getHttpServer())
+        .patch(`/tasks/${taskId}/assignee`)
+        .set('Authorization', authHeader(member))
+        .send({ assigneeId: manager.id })
+        .expect(403);
+
+      // Task assignee must remain null.
+      const response = await request(app.getHttpServer())
+        .get(`/tasks/${taskId}`)
+        .set('Authorization', authHeader(member))
+        .expect(200);
+
+      expect(response.body.assignee).toBeNull();
+    });
+
+    // Test 4 — Outside-project user cannot be assigned
+    it('rejects assigning a user who is not a project member', async () => {
+      await request(app.getHttpServer())
+        .patch(`/tasks/${taskId}/assignee`)
+        .set('Authorization', authHeader(owner))
+        .send({ assigneeId: outsider.id })
+        .expect(403);
+
+      const response = await request(app.getHttpServer())
+        .get(`/tasks/${taskId}`)
+        .set('Authorization', authHeader(member))
+        .expect(200);
+
+      expect(response.body.assignee).toBeNull();
+    });
+
+    // Test 5 — Unassignment
+    it('allows unassigning a task', async () => {
+      // Assign first.
+      await request(app.getHttpServer())
+        .patch(`/tasks/${taskId}/assignee`)
+        .set('Authorization', authHeader(member))
+        .send({ assigneeId: member.id })
+        .expect(200);
+
+      // Then unassign.
+      const response = await request(app.getHttpServer())
+        .patch(`/tasks/${taskId}/assignee`)
+        .set('Authorization', authHeader(member))
+        .send({ assigneeId: null })
+        .expect(200);
+
+      expect(response.body.assignee).toBeNull();
+    });
+
+    // Test 6 — Unauthorized actor cannot assign
+    it('returns 403 when a user outside the project tries to assign', async () => {
+      await request(app.getHttpServer())
+        .patch(`/tasks/${taskId}/assignee`)
+        .set('Authorization', authHeader(outsider))
+        .send({ assigneeId: outsider.id })
+        .expect(403);
+
+      const response = await request(app.getHttpServer())
+        .get(`/tasks/${taskId}`)
+        .set('Authorization', authHeader(member))
+        .expect(200);
+
+      expect(response.body.assignee).toBeNull();
+    });
+
+    // Test 7 — Same assignee is idempotent
+    it('handles re-assigning to the same user without error', async () => {
+      await request(app.getHttpServer())
+        .patch(`/tasks/${taskId}/assignee`)
+        .set('Authorization', authHeader(member))
+        .send({ assigneeId: member.id })
+        .expect(200);
+
+      const response = await request(app.getHttpServer())
+        .patch(`/tasks/${taskId}/assignee`)
+        .set('Authorization', authHeader(member))
+        .send({ assigneeId: member.id })
+        .expect(200);
+
+      expect(response.body.assignee).toMatchObject({ email: 'magd@example.com' });
+    });
+  });
 });
