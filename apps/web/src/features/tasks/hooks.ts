@@ -50,7 +50,10 @@ export function useUpdateTaskStatus(taskId: string, projectId: string) {
     mutationFn: (status) => updateTaskStatus(taskId, status),
     onSuccess: async (task) => {
       queryClient.setQueryData(queryKeys.task(taskId), task);
-      await queryClient.invalidateQueries({ queryKey: queryKeys.projectTasks(projectId) });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.projectTasks(projectId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.taskActivity(taskId) }),
+      ]);
     },
   });
 }

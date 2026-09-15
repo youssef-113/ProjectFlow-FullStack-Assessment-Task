@@ -111,6 +111,13 @@ export function TaskView({ projectId, taskId }: TaskViewProps) {
             </h2>
             <p className="text-[13px] text-muted-foreground">{formatDate(task.createdAt)}</p>
           </div>
+
+          <div className="space-y-1.5">
+            <h2 className="text-[11px] font-medium uppercase tracking-wide text-subtle-foreground">
+              Updated
+            </h2>
+            <p className="text-[13px] text-muted-foreground">{formatDate(task.updatedAt)}</p>
+          </div>
         </aside>
       </div>
 

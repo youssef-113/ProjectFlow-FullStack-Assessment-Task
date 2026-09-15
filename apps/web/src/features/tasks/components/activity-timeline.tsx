@@ -1,6 +1,4 @@
 'use client';
-
-import { Fragment } from 'react';
 import { Avatar } from '@/components/ui/avatar';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
@@ -60,11 +58,11 @@ export function ActivityTimeline({ taskId, projectId }: ActivityTimelineProps) {
         let text = 'Activity updated';
         if (it.type === 'TASK_ASSIGNEE_CHANGED') {
           if (!fromId && toId) {
-            text = `${it.actor.name} assigned this task to ${toName}`;
+            text = `${it.actor.name} assigned the task to ${toName}`;
           } else if (fromId && toId) {
             text = `${it.actor.name} changed the assignee from ${fromName} to ${toName}`;
           } else if (fromId && !toId) {
-            text = `${it.actor.name} unassigned this task from ${fromName}`;
+            text = `${it.actor.name} removed ${fromName} as the assignee`;
           }
         }
 
