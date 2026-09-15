@@ -12,11 +12,13 @@ import type { ListTasksQueryDto } from './dto/list-tasks.dto';
 import type { UpdateTaskDto } from './dto/update-task.dto';
 import type { UpdateTaskStatusDto } from './dto/update-task-status.dto';
 import { Task, type TaskDocument } from './schemas/task.schema';
+import { TaskSequence, type TaskSequenceDocument } from './schemas/task-sequence.schema';
 
 @Injectable()
 export class TasksService {
   constructor(
     @InjectModel(Task.name) private readonly taskModel: Model<TaskDocument>,
+    @InjectModel(TaskSequence.name) private readonly taskSequenceModel: Model<TaskSequenceDocument>,
     @InjectModel(Project.name) private readonly projectModel: Model<ProjectDocument>,
     @InjectModel(Comment.name) private readonly commentModel: Model<CommentDocument>,
     private readonly projectAccessService: ProjectAccessService,
@@ -58,8 +60,7 @@ export class TasksService {
   ): Promise<TaskDetail> {
     const { project } = await this.projectAccessService.assertCanView(projectId, userId);
 
-    const taskCount = await this.taskModel.countDocuments({ projectId });
-    const number = taskCount + 1;
+    const number = await this.getNextTaskNumber(projectId);
 
     const task = await this.taskModel.create({
       projectId,
@@ -113,13 +114,14 @@ export class TasksService {
     return this.toDetail(task, access.project);
   }
 
-  async updateStatus(taskId: Types.ObjectId, dto: UpdateTaskStatusDto): Promise<TaskDetail> {
+  async updateStatus(taskId: Types.ObjectId, userId: Types.ObjectId, dto: UpdateTaskStatusDto): Promise<TaskDetail> {
     const task = await this.findTaskOrFail(taskId);
+    const { project } = await this.projectAccessService.assertCanView(task.projectId, userId);
 
     task.status = dto.status;
     await task.save();
 
-    return this.toDetail(task);
+    return this.toDetail(task, project);
   }
 
   async remove(taskId: Types.ObjectId, userId: Types.ObjectId): Promise<void> {
@@ -190,6 +192,39 @@ export class TasksService {
         key: resolvedProject.key,
       },
     };
+  }
+
+  private async getNextTaskNumber(projectId: Types.ObjectId): Promise<number> {
+    const sequence = await this.taskSequenceModel
+      .findOneAndUpdate({ projectId }, { $inc: { nextNumber: 1 } }, { new: true })
+      .exec();
+
+    if (sequence) {
+      return sequence.nextNumber;
+    }
+
+    const highestTask = await this.taskModel
+      .findOne({ projectId })
+      .sort({ number: -1 })
+      .select('number')
+      .exec();
+    const initialNumber = (highestTask?.number ?? 0) + 1;
+
+    try {
+      const created = await this.taskSequenceModel.create({
+        projectId,
+        nextNumber: initialNumber,
+      });
+      return created.nextNumber;
+    } catch {
+      const retrySequence = await this.taskSequenceModel
+        .findOneAndUpdate({ projectId }, { $inc: { nextNumber: 1 } }, { new: true })
+        .exec();
+      if (retrySequence) {
+        return retrySequence.nextNumber;
+      }
+      throw new Error('Failed to allocate task sequence number');
+    }
   }
 }
 

@@ -1,3 +1,5 @@
+/// <reference types="jest" />
+
 import type { INestApplication } from '@nestjs/common';
 import type { Connection } from 'mongoose';
 import request from 'supertest';
@@ -9,6 +11,7 @@ import {
   authHeader,
   createOrganization,
   createProject,
+  createTask,
   registerUser,
   type TestUser,
 } from './utils/fixtures';
@@ -145,5 +148,129 @@ describe('Tasks', () => {
 
     expect(response.body.total).toBe(1);
     expect(response.body.items[0]).toMatchObject({ title: 'Work in flight' });
+  });
+
+  it('generates unique sequential task numbers under concurrent creation', async () => {
+    const creationRequests = Array.from({ length: 5 }, (_, i) =>
+      request(app.getHttpServer())
+        .post(`/projects/${projectId}/tasks`)
+        .set('Authorization', authHeader(member))
+        .send({ title: `Concurrent task ${i + 1}` }),
+    );
+
+    const responses = await Promise.all(creationRequests);
+    for (const res of responses) {
+      expect(res.status).toBe(201);
+    }
+
+    const numbers = responses.map((res) => res.body.number);
+    const keys = responses.map((res) => res.body.key);
+
+    expect(new Set(numbers).size).toBe(5);
+    expect(new Set(keys).size).toBe(5);
+  });
+
+  // ── Authorization regression tests ─────────────────────────────────────────
+  // These tests cover the confirmed vulnerability: PATCH /tasks/:taskId/status
+  // did not check project membership, allowing any authenticated user to mutate
+  // tasks belonging to projects they should not access.
+
+  describe('task mutation authorization', () => {
+    let taskId: string;
+
+    beforeEach(async () => {
+      // Create the task as 'member' so that member satisfies the isCreator check
+      // in the update endpoint (canManage || isCreator). This tests the normal
+      // happy-path where a project member edits a task they created.
+      taskId = await createTask(connection, projectId, 'ENG', 1, 'Auth regression task', member.id);
+    });
+
+    it('allows a project member to update a task', async () => {
+      await request(app.getHttpServer())
+        .patch(`/tasks/${taskId}`)
+        .set('Authorization', authHeader(member))
+        .send({ title: 'Updated title' })
+        .expect(200);
+
+      const response = await request(app.getHttpServer())
+        .get(`/tasks/${taskId}`)
+        .set('Authorization', authHeader(member))
+        .expect(200);
+
+      expect(response.body.title).toBe('Updated title');
+    });
+
+    it('returns 403 when an outsider attempts to update a task', async () => {
+      await request(app.getHttpServer())
+        .patch(`/tasks/${taskId}`)
+        .set('Authorization', authHeader(outsider))
+        .send({ title: 'Hijacked title' })
+        .expect(403);
+
+      // Verify the task was not modified.
+      const response = await request(app.getHttpServer())
+        .get(`/tasks/${taskId}`)
+        .set('Authorization', authHeader(member))
+        .expect(200);
+
+      expect(response.body.title).toBe('Auth regression task');
+    });
+
+    it('returns 403 when an outsider attempts to delete a task', async () => {
+      await request(app.getHttpServer())
+        .delete(`/tasks/${taskId}`)
+        .set('Authorization', authHeader(outsider))
+        .expect(403);
+
+      // Verify the task still exists.
+      await request(app.getHttpServer())
+        .get(`/tasks/${taskId}`)
+        .set('Authorization', authHeader(member))
+        .expect(200);
+    });
+
+    it('allows a project member to change task status', async () => {
+      await request(app.getHttpServer())
+        .patch(`/tasks/${taskId}/status`)
+        .set('Authorization', authHeader(member))
+        .send({ status: TaskStatus.IN_PROGRESS })
+        .expect(200);
+
+      const response = await request(app.getHttpServer())
+        .get(`/tasks/${taskId}`)
+        .set('Authorization', authHeader(member))
+        .expect(200);
+
+      expect(response.body.status).toBe(TaskStatus.IN_PROGRESS);
+    });
+
+    it('returns 403 when an outsider attempts to change task status', async () => {
+      await request(app.getHttpServer())
+        .patch(`/tasks/${taskId}/status`)
+        .set('Authorization', authHeader(outsider))
+        .send({ status: TaskStatus.DONE })
+        .expect(403);
+
+      // Verify status was not changed.
+      const response = await request(app.getHttpServer())
+        .get(`/tasks/${taskId}`)
+        .set('Authorization', authHeader(member))
+        .expect(200);
+
+      expect(response.body.status).toBe(TaskStatus.TODO);
+    });
+
+    it('allows the project owner to delete a task', async () => {
+      await request(app.getHttpServer())
+        .delete(`/tasks/${taskId}`)
+        .set('Authorization', authHeader(owner))
+        .expect(204);
+
+      // Task should no longer be accessible.
+      await request(app.getHttpServer())
+        .get(`/tasks/${taskId}`)
+        .set('Authorization', authHeader(owner))
+        .expect(404);
+    });
   });
 });
