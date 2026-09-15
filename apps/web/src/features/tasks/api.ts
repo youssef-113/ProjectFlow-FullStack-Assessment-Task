@@ -48,6 +48,12 @@ export function updateTaskAssignee(taskId: string, assigneeId: string | null): P
   });
 }
 
+export function fetchTaskActivity(taskId: string, cursor?: string, limit = 25) {
+  return apiRequest<import('@projectflow/shared').TaskActivityResponse>(`/tasks/${taskId}/activity`, {
+    query: { cursor, limit },
+  });
+}
+
 export function updateTask(
   taskId: string,
   payload: Partial<Pick<CreateTaskPayload, 'title' | 'description' | 'priority'>>,

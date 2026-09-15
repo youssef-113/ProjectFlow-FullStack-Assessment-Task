@@ -1,6 +1,6 @@
 'use client';
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
 import type { Paginated, TaskDetail, TaskStatus, TaskSummary } from '@projectflow/shared';
 import { queryKeys } from '@/lib/query-keys';
 import {
@@ -11,6 +11,7 @@ import {
   updateTaskStatus,
 } from './api';
 import { updateTaskAssignee } from './api';
+import { fetchTaskActivity } from './api';
 
 export function useProjectTasks(projectId: string) {
   return useQuery<Paginated<TaskSummary>>({
@@ -64,4 +65,15 @@ export function useUpdateTaskAssignee(taskId: string, projectId: string) {
       await queryClient.invalidateQueries({ queryKey: queryKeys.projectTasks(projectId) });
     },
   });
+}
+
+export function useTaskActivity(taskId: string) {
+  return useInfiniteQuery<import('@projectflow/shared').TaskActivityResponse, Error>(
+    queryKeys.taskActivity(taskId),
+    ({ pageParam }) => fetchTaskActivity(taskId, pageParam),
+    {
+      enabled: taskId.length > 0,
+      getNextPageParam: (last) => last.nextCursor ?? undefined,
+    },
+  );
 }

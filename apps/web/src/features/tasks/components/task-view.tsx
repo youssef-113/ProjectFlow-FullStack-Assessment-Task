@@ -9,6 +9,7 @@ import { formatDate } from '@/lib/format';
 import { useTask } from '../hooks';
 import { TaskPriorityBadge } from './task-priority-badge';
 import { TaskStatusSelect } from './task-status-select';
+import { ActivityTimeline } from './activity-timeline';
 import { AssigneeSelect } from './assignee-select';
 
 interface TaskViewProps {
@@ -112,6 +113,11 @@ export function TaskView({ projectId, taskId }: TaskViewProps) {
           </div>
         </aside>
       </div>
+
+      <section aria-label="Activity">
+        <h2 className="mb-2 text-sm font-semibold text-foreground">Activity</h2>
+        <ActivityTimeline taskId={taskId} projectId={projectId} />
+      </section>
     </div>
   );
 }
