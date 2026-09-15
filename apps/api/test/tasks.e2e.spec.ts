@@ -1,3 +1,5 @@
+/// <reference types="jest" />
+
 import type { INestApplication } from '@nestjs/common';
 import type { Connection } from 'mongoose';
 import request from 'supertest';
@@ -145,5 +147,25 @@ describe('Tasks', () => {
 
     expect(response.body.total).toBe(1);
     expect(response.body.items[0]).toMatchObject({ title: 'Work in flight' });
+  });
+
+  it('generates unique sequential task numbers under concurrent creation', async () => {
+    const creationRequests = Array.from({ length: 5 }, (_, i) =>
+      request(app.getHttpServer())
+        .post(`/projects/${projectId}/tasks`)
+        .set('Authorization', authHeader(member))
+        .send({ title: `Concurrent task ${i + 1}` }),
+    );
+
+    const responses = await Promise.all(creationRequests);
+    for (const res of responses) {
+      expect(res.status).toBe(201);
+    }
+
+    const numbers = responses.map((res) => res.body.number);
+    const keys = responses.map((res) => res.body.key);
+
+    expect(new Set(numbers).size).toBe(5);
+    expect(new Set(keys).size).toBe(5);
   });
 });
