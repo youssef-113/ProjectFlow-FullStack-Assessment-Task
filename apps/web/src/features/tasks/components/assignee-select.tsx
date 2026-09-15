@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import { useCurrentUser } from '@/features/auth/hooks';
 import { CaretDownIcon } from '@phosphor-icons/react/dist/ssr';
 import { Avatar } from '@/components/ui/avatar';
+import { ProjectRole } from '@projectflow/shared';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,7 +22,7 @@ import { ApiError } from '@/lib/api-client';
 interface AssigneeSelectProps {
   taskId: string;
   projectId: string;
-  assignee?: { id: string; name: string; avatarUrl?: string } | null;
+  assignee?: { id: string; name: string; avatarUrl?: string | null } | null;
 }
 
 export function AssigneeSelect({ taskId, projectId, assignee }: AssigneeSelectProps) {
@@ -44,7 +45,10 @@ export function AssigneeSelect({ taskId, projectId, assignee }: AssigneeSelectPr
   // Determine current user's project role (if any)
   const currentMember = (members.data ?? []).find((m) => m.user.id === currentUser?.id);
   const currentRole = currentMember?.role;
-  const canAssignOthers = currentRole === 'OWNER' || currentRole === 'ADMIN' || currentRole === 'PROJECT_MANAGER';
+  // Only PROJECT_MANAGER is an elevated project-level role.
+  // Org OWNER/ADMIN bypass is handled server-side; at the project level the only
+  // elevated explicit project role is PROJECT_MANAGER.
+  const canAssignOthers = currentRole === ProjectRole.PROJECT_MANAGER;
   const canAssignSelf = !!currentMember;
   const canUnassign = canAssignOthers || (assignee?.id === currentUser?.id);
 

@@ -4,7 +4,7 @@ import { type FilterQuery, Model, Types } from 'mongoose';
 import type { Paginated, TaskActivityResponse, TaskDetail, TaskSummary } from '@projectflow/shared';
 import { toUserSummary } from '../common/utils/serialize';
 import { Comment, type CommentDocument } from '../comments/schemas/comment.schema';
-import { canManage, ProjectAccessService } from '../projects/project-access.service';
+import { canManage, canView, ProjectAccessService } from '../projects/project-access.service';
 import { Project, type ProjectDocument } from '../projects/schemas/project.schema';
 import { ProjectMembersService } from '../project-members/project-members.service';
 import { UsersService } from '../users/users.service';
@@ -180,9 +180,11 @@ export class TasksService {
       throw new ForbiddenException('Members can only assign tasks to themselves');
     }
 
-    // Verify the assignee is a member of this project.
-    const assigneeRole = await this.projectMembersService.findRole(task.projectId, assigneeId);
-    if (assigneeRole === null) {
+    // Verify the assignee has access to this project (project member OR elevated org role).
+    // Using the same access-check logic as the rest of the system so that org OWNER/ADMIN
+    // can be assigned without needing an explicit project_members row.
+    const assigneeAccess = await this.projectAccessService.resolve(task.projectId, assigneeId);
+    if (!canView(assigneeAccess)) {
       throw new ForbiddenException('The assignee must be a member of this project');
     }
 
@@ -215,18 +217,24 @@ export class TasksService {
     const task = await this.findTaskOrFail(taskId);
     await this.projectAccessService.assertCanView(task.projectId, userId);
 
-    // Build query with optional cursor pagination
-    const queryBuilder = this.taskActivityModel.find({ taskId });
+    // Build query with optional cursor pagination.
+    // Use a plain filter object to avoid Mongoose chain type limitations.
+    const filter: Record<string, unknown> = { taskId };
 
     if (query.cursor) {
-      const [cursorCreatedAt, cursorId] = query.cursor.split('_');
-      queryBuilder.where('createdAt').lt(new Date(cursorCreatedAt));
+      const parts = query.cursor.split('_');
+      // Cursor format is internally generated as `${isoDate}_${objectId}`.
+      // parts[0] is always a valid ISO date string.
+      const cursorCreatedAt = parts[0]!;
+      const cursorId = parts[1];
+      filter['createdAt'] = { $lt: new Date(cursorCreatedAt) };
       if (cursorId) {
-        queryBuilder.where('_id').lt(new Types.ObjectId(cursorId));
+        filter['_id'] = { $lt: new Types.ObjectId(cursorId) };
       }
     }
 
-    const activities = await queryBuilder
+    const activities = await this.taskActivityModel
+      .find(filter)
       .sort({ createdAt: -1, _id: -1 })
       .limit(query.limit + 1) // Fetch one extra to determine if there are more results
       .exec();
@@ -238,7 +246,8 @@ export class TasksService {
     // Generate next cursor if there are more results
     let nextCursor: string | null = null;
     if (hasMore && items.length > 0) {
-      const lastItem = items[items.length - 1];
+      // items.length > 0 is guaranteed by the enclosing if-guard.
+      const lastItem = items[items.length - 1]!;
       nextCursor = `${lastItem.createdAt.toISOString()}_${lastItem._id.toString()}`;
     }
 

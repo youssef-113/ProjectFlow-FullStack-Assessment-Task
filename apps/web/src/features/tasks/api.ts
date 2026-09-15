@@ -1,5 +1,6 @@
 import type {
   Paginated,
+  TaskActivityResponse,
   TaskDetail,
   TaskPriority,
   TaskStatus,
@@ -49,7 +50,7 @@ export function updateTaskAssignee(taskId: string, assigneeId: string | null): P
 }
 
 export function fetchTaskActivity(taskId: string, cursor?: string, limit = 25) {
-  return apiRequest<import('@projectflow/shared').TaskActivityResponse>(`/tasks/${taskId}/activity`, {
+  return apiRequest<TaskActivityResponse>(`/tasks/${taskId}/activity`, {
     query: { cursor, limit },
   });
 }

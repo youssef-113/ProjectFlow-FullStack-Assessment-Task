@@ -1,4 +1,5 @@
 'use client';
+import type { TaskActivityResponse } from '@projectflow/shared';
 import { Avatar } from '@/components/ui/avatar';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
@@ -34,7 +35,7 @@ export function ActivityTimeline({ taskId, projectId }: ActivityTimelineProps) {
   }
 
   const pages = activity.data?.pages ?? [];
-  const items = pages.flatMap((p) => p.items);
+  const items = pages.flatMap((p: TaskActivityResponse) => p.items);
 
   if (items.length === 0) {
     return (
@@ -79,7 +80,7 @@ export function ActivityTimeline({ taskId, projectId }: ActivityTimelineProps) {
         );
       })}
 
-      {pages[pages.length - 1].nextCursor ? (
+      {pages[pages.length - 1]?.nextCursor ? (
         <div>
           <Button
             variant="ghost"
