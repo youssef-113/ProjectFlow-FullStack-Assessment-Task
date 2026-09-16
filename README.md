@@ -1,324 +1,229 @@
 # ProjectFlow
 
-ProjectFlow is a lightweight project and task tracker for software teams.
-Organizations own projects, projects own tasks, and tasks carry a status, a
-priority and a discussion thread.
+<p align="center">
+  <strong>A focused workspace for teams to plan projects, manage tasks, and keep delivery conversations together.</strong>
+</p>
 
-It is a TypeScript monorepo: a NestJS + MongoDB API and a Next.js App Router
-frontend, sharing a small package of domain types and enums.
+<p align="center">
+  <a href="https://nextjs.org/"><img src="https://img.shields.io/badge/Next.js-16-111827?logo=next.js&logoColor=white" alt="Next.js 16"></a>
+  <a href="https://nestjs.com/"><img src="https://img.shields.io/badge/NestJS-11-e0234e?logo=nestjs&logoColor=white" alt="NestJS 11"></a>
+  <a href="https://www.mongodb.com/atlas"><img src="https://img.shields.io/badge/MongoDB-Atlas-47A248?logo=mongodb&logoColor=white" alt="MongoDB Atlas"></a>
+  <a href="https://pnpm.io/workspaces"><img src="https://img.shields.io/badge/pnpm-10.33.0-f69220?logo=pnpm&logoColor=white" alt="pnpm 10.33.0"></a>
+  <a href="https://turbo.build/repo"><img src="https://img.shields.io/badge/Turborepo-2.10.12-000000?logo=turborepo&logoColor=white" alt="Turborepo"></a>
+</p>
 
----
+ProjectFlow is a full-stack project and task tracker for software teams. It combines a NestJS API, a Next.js App Router web application, MongoDB persistence, and shared TypeScript contracts in one pnpm/Turborepo workspace.
 
-## Technology stack
+## Product Overview
 
-| Area         | Choice                                           |
-| ------------ | ------------------------------------------------ |
-| Monorepo     | pnpm workspaces + Turborepo                      |
-| Language     | TypeScript 5.9                                   |
-| API          | NestJS 11, Mongoose 8, MongoDB                   |
-| Auth         | JWT bearer tokens, bcrypt password hashing       |
-| Web          | Next.js 16 (App Router), React 19                |
-| Styling      | Tailwind CSS 4, Radix primitives, Phosphor Icons |
-| Server state | TanStack Query 5                                 |
-| Forms        | React Hook Form + Zod                            |
-| Testing      | Jest, Supertest, mongodb-memory-server           |
-
----
-
-## Prerequisites
-
-- **Node.js 20.19+** (22 or 24 recommended)
-- **pnpm 10+** — `npm install -g pnpm`
-- **MongoDB 7+** running locally
-
-On macOS:
-
-```bash
-brew tap mongodb/brew
-brew install mongodb-community@7.0
-brew services start mongodb-community@7.0
-```
-
-Any reachable MongoDB works — point `MONGODB_URI` wherever you like.
-
----
-
-## Installation
-
-```bash
-pnpm install
-```
-
-## Environment setup
-
-Configuration lives in a single `.env` file at the repository root; both apps
-read it.
-
-```bash
-cp .env.example .env
-```
-
-| Variable              | Purpose                          | Default                                 |
-| --------------------- | -------------------------------- | --------------------------------------- |
-| `MONGODB_URI`         | MongoDB connection string        | `mongodb://127.0.0.1:27017/projectflow` |
-| `JWT_SECRET`          | Signing secret for access tokens | — (required)                            |
-| `JWT_EXPIRES_IN`      | Access token lifetime            | `7d`                                    |
-| `API_PORT`            | Port the API listens on          | `4732`                                  |
-| `WEB_ORIGIN`          | Origin allowed by CORS           | `http://localhost:3742`                 |
-| `NEXT_PUBLIC_API_URL` | API base URL used by the browser | `http://localhost:4732`                 |
-
-The API refuses to boot if `MONGODB_URI` or `JWT_SECRET` is missing.
-
-## Database
-
-Make sure MongoDB is running, then load development data:
-
-```bash
-pnpm seed
-```
-
-The seed is repeatable — it clears the ProjectFlow collections and reinserts a
-fresh organization, users, projects, tasks and comments.
-
-## Running the apps
-
-```bash
-pnpm dev
-```
-
-- Web — <http://localhost:3742>
-- API — <http://localhost:4732>
-
-Both apps deliberately avoid the usual 3000/4000 defaults so they do not clash
-with other projects. To move the web app, set `WEB_PORT` in your shell and
-update `WEB_ORIGIN` in `.env` to match, so CORS keeps working:
-
-```bash
-WEB_PORT=3800 pnpm --filter @projectflow/web dev
-```
-
-The API port comes from `API_PORT` in `.env`; change `NEXT_PUBLIC_API_URL` to
-match if you move it.
-
-Run one at a time if you prefer:
-
-```bash
-pnpm --filter api dev
-pnpm --filter @projectflow/web dev
-```
-
-## From a clean checkout
-
-```bash
-pnpm install
-cp .env.example .env
-pnpm seed
-pnpm dev
-```
-
----
-
-## Commands
-
-| Command          | Description                                |
-| ---------------- | ------------------------------------------ |
-| `pnpm dev`       | Run the API and web app in watch mode      |
-| `pnpm build`     | Build every package and app                |
-| `pnpm lint`      | ESLint across the workspace                |
-| `pnpm typecheck` | TypeScript project-wide, no emit           |
-| `pnpm test`      | API test suite (uses an in-memory MongoDB) |
-| `pnpm seed`      | Reset and reload development data          |
-| `pnpm format`    | Prettier write                             |
-
-`pnpm test` does not need a running MongoDB — it starts a throwaway in-memory
-server for the duration of the run. The first run downloads a MongoDB binary
-(around 100 MB) and caches it.
-
----
-
-## Development credentials
-
-Seeded accounts, all sharing the password `Password123!`:
-
-| Name         | Email                 | Access                    |
-| ------------ | --------------------- | ------------------------- |
-| Ammar Yaser  | `ammar@example.com`   | Organization owner        |
-| Sarah Ahmed  | `sarah@example.com`   | Organization admin        |
-| Ahmed Hassan | `ahmed@example.com`   | Project manager on `ENG`  |
-| Magd Ali     | `magd@example.com`    | Member of `ENG` and `WEB` |
-| Outside User | `outside@example.com` | No organization           |
-
-These are local development accounts only.
-
----
+| Area           | Implemented experience                                                     |
+| -------------- | -------------------------------------------------------------------------- |
+| Authentication | Register, sign in, JWT sessions, current-user loading, sign out            |
+| Organizations  | Organization context with owner, admin, and member roles                   |
+| Projects       | Browse projects, create projects, view project details, manage members     |
+| Tasks          | Create, edit, delete, filter, change status, assign, and unassign tasks    |
+| Collaboration  | Task comments and assignment activity history                              |
+| Access control | Project-aware backend authorization for every protected operation          |
+| Data layer     | MongoDB/Mongoose schemas, indexes, validation, and seeded development data |
 
 ## Architecture
 
-```
-projectflow/
-├── apps/
-│   ├── api/                     NestJS API
-│   │   ├── src/
-│   │   │   ├── auth/            register / login / current user
-│   │   │   ├── users/
-│   │   │   ├── organizations/
-│   │   │   ├── organization-members/
-│   │   │   ├── projects/        projects + ProjectAccessService
-│   │   │   ├── project-members/
-│   │   │   ├── tasks/
-│   │   │   ├── comments/
-│   │   │   ├── common/          guards, decorators, filters, shared DTOs
-│   │   │   └── database/seed.ts
-│   │   └── test/                e2e suites and fixtures
-│   │
-│   └── web/                     Next.js App Router frontend
-│       └── src/
-│           ├── app/             routes and layouts
-│           ├── components/      design system primitives + app shell
-│           ├── features/        auth, projects, tasks, comments
-│           ├── lib/             API client, query keys, formatting
-│           └── providers/       TanStack Query provider
-│
-└── packages/
-    ├── shared/                  enums, constants, API response types
-    ├── eslint-config/           flat ESLint configs
-    └── tsconfig/                base TypeScript configs
+```mermaid
+flowchart LR
+    Browser[Next.js web app]
+    Client[API client + TanStack Query]
+    API[NestJS API]
+    Auth[JWT guard + project access]
+    Mongo[(MongoDB Atlas)]
+
+    Browser --> Client
+    Client -->|Bearer HTTP requests| API
+    API --> Auth
+    Auth --> Mongo
+    Mongo --> API
+    API --> Client
+    Client --> Browser
 ```
 
-### API layering
+MongoDB is accessed only by the NestJS API. The frontend uses `NEXT_PUBLIC_API_URL`, the shared API client, and TanStack Query; it never contains database credentials or connection code.
 
-Each module follows the same shape: controller → service → Mongoose model, with
-DTOs validating input at the boundary. Controllers stay thin; business rules
-live in services.
+### Repository layout
+
+```text
+apps/
+├── api/                 NestJS API, Mongoose schemas, services, and e2e tests
+└── web/                 Next.js App Router application and feature UI
+packages/
+├── shared/              Shared API response types, enums, and constants
+├── eslint-config/       Shared ESLint configuration
+└── tsconfig/            Shared TypeScript configurations
+```
 
 ### Domain model
 
-```
-User
-Organization        ── OrganizationMember ── User      (OWNER | ADMIN | MEMBER)
-Organization  ── Project
-Project             ── ProjectMember      ── User      (PROJECT_MANAGER | MEMBER)
-Project       ── Task ── Comment
-```
-
-Membership is stored in its own collection rather than as arrays on the parent
-document, so it can be indexed and queried directly. Both membership
-collections carry a unique compound index on their two foreign keys.
-
-Tasks are numbered per project and identified by a human-readable key derived
-from the project key: `ENG-1`, `ENG-2`, `WEB-1`.
-
-### Authorization
-
-`ProjectAccessService` answers "may this user touch this project?" in one
-place. Access comes from either an elevated organization role (`OWNER` or
-`ADMIN`, which grants access to every project in the organization) or an
-explicit project membership row. `assertCanView` gates reads, `assertCanManage`
-gates configuration and membership changes.
-
-Authentication is a JWT bearer token. `JwtAuthGuard` is registered globally;
-routes opt out with the `@Public()` decorator.
-
-### API surface
-
-```
-POST   /auth/register
-POST   /auth/login
-GET    /auth/me
-
-GET    /organizations
-
-GET    /projects
-POST   /projects
-GET    /projects/:projectId
-GET    /projects/:projectId/members
-POST   /projects/:projectId/members
-
-GET    /projects/:projectId/tasks
-POST   /projects/:projectId/tasks
-GET    /tasks/:taskId
-PATCH  /tasks/:taskId
-PATCH  /tasks/:taskId/status
-PATCH  /tasks/:taskId/assignee
-DELETE /tasks/:taskId
-GET    /tasks/:taskId/activity
-
-GET    /tasks/:taskId/comments
-POST   /tasks/:taskId/comments
+```mermaid
+erDiagram
+    USER ||--o{ ORGANIZATION_MEMBER : joins
+    ORGANIZATION ||--o{ ORGANIZATION_MEMBER : contains
+    ORGANIZATION ||--o{ PROJECT : owns
+    USER ||--o{ PROJECT_MEMBER : joins
+    PROJECT ||--o{ PROJECT_MEMBER : contains
+    PROJECT ||--o{ TASK : contains
+    USER ||--o{ TASK : creates
+    USER ||--o{ TASK : assigned
+    TASK ||--o{ COMMENT : has
+    TASK ||--o{ TASK_ACTIVITY : records
 ```
 
-Errors share one shape:
+## API Surface
 
-```json
-{
-  "statusCode": 403,
-  "message": "You do not have access to this project",
-  "error": "Forbidden"
-}
+All routes below are protected by JWT authentication unless noted otherwise.
+
+```text
+POST   /auth/register                 Public registration
+POST   /auth/login                    Public login
+GET    /auth/me                       Current authenticated user
+
+GET    /organizations                 Accessible organizations
+
+GET    /projects                      Accessible projects
+POST   /projects                      Create a project
+GET    /projects/:projectId           Project details
+GET    /projects/:projectId/members   Project members
+POST   /projects/:projectId/members   Add a project member
+
+GET    /projects/:projectId/tasks     Paginated task list
+POST   /projects/:projectId/tasks     Create a task
+GET    /tasks/:taskId                 Task details
+PATCH  /tasks/:taskId                 Edit task fields
+PATCH  /tasks/:taskId/status          Change task status
+PATCH  /tasks/:taskId/assignee        Assign or unassign a task
+DELETE /tasks/:taskId                 Delete a task
+GET    /tasks/:taskId/activity        Cursor-paginated activity history
+
+GET    /tasks/:taskId/comments        List task comments
+POST   /tasks/:taskId/comments        Add a task comment
 ```
 
-### Frontend
+Sensitive rules are enforced in backend services. Organization owners and admins have elevated project access; project managers can manage project work; regular members can update their own permitted task state and assign tasks to themselves. The UI reflects these permissions, but never acts as the security boundary.
 
-Routes are thin; the work happens in `features/`. Server state is owned by
-TanStack Query — query keys live in `lib/query-keys.ts` so invalidation stays
-predictable — and local UI state stays in React. The API client in
-`lib/api-client.ts` centralises the base URL, the auth header and error
-parsing.
+## Local Development
 
-Components are server components by default; `"use client"` is added only where
-interactivity or hooks require it.
+### Requirements
 
----
+- Node.js `20.19+`
+- pnpm `10.33.0`
+- MongoDB 7+ or a reachable MongoDB Atlas cluster
 
-## Production Deployment
+### Install and configure
 
-### 1. MongoDB Atlas
+```bash
+pnpm install
+cp .env.example .env
+```
 
-1. Create a free cluster at [mongodb.com/cloud/atlas](https://www.mongodb.com/cloud/atlas).
-2. Add a database user with read/write access.
-3. Whitelist `0.0.0.0/0` (Railway uses dynamic IPs) or add Railway's outbound IPs.
-4. Copy the connection string from **Connect → Drivers** — it looks like:
-   ```
-   mongodb+srv://<user>:<password>@<cluster>.mongodb.net/<dbname>?retryWrites=true&w=majority
-   ```
-5. Use this as `MONGODB_URI` in Railway.
+Set these values in the root `.env` file for local development:
 
-### 2. Railway (backend API)
+| Variable              | Purpose                                                      |
+| --------------------- | ------------------------------------------------------------ |
+| `MONGODB_URI`         | MongoDB connection string                                    |
+| `JWT_SECRET`          | JWT signing secret                                           |
+| `JWT_EXPIRES_IN`      | Token lifetime, for example `7d`                             |
+| `API_PORT`            | API port, default `4732`                                     |
+| `WEB_ORIGIN`          | Browser origin allowed by API CORS                           |
+| `NEXT_PUBLIC_API_URL` | API URL used by the browser, default `http://localhost:4732` |
 
-1. Create a new Railway project and connect this GitHub repository.
-2. Set the **root directory** to `/` (repository root) — the `railway.json` at the root drives the build.
-3. Set these environment variables in the Railway dashboard:
+Never commit real credentials. Production values belong in Railway and Vercel environment settings.
 
-   | Variable | Value |
-   |---|---|
-   | `MONGODB_URI` | Atlas connection string |
-   | `JWT_SECRET` | Random secret (≥ 32 chars) — `openssl rand -base64 48` |
-   | `JWT_EXPIRES_IN` | `7d` (or your preferred lifetime) |
-   | `WEB_ORIGIN` | `https://<your-app>.vercel.app` |
+### Run the workspace
 
-   Railway injects `PORT` automatically — do **not** set it manually.
+```bash
+pnpm dev
+```
 
-4. Deploy. The API will be accessible at `https://<your-api>.railway.app`.
+| Application | URL                     |
+| ----------- | ----------------------- |
+| Web         | `http://localhost:3742` |
+| API         | `http://localhost:4732` |
 
-### 3. Vercel (frontend)
+Load repeatable development data with:
 
-1. Create a new Vercel project and import this GitHub repository.
-2. Leave the **root directory** as `/` (repository root) — `vercel.json` handles the monorepo build.
-3. Set this environment variable in the Vercel dashboard:
+```bash
+pnpm seed
+```
 
-   | Variable | Value |
-   |---|---|
-   | `NEXT_PUBLIC_API_URL` | `https://<your-api>.railway.app` |
+The seed command resets the ProjectFlow collections and creates organizations, users, projects, tasks, and comments for local use.
 
-4. Deploy. The frontend will be accessible at `https://<your-app>.vercel.app`.
-5. Copy the Vercel URL back into Railway's `WEB_ORIGIN` so CORS allows it.
+## Quality Checks
 
-### Required environment variables summary
+```bash
+pnpm install --frozen-lockfile
+pnpm exec turbo build --filter=api
+pnpm typecheck
+pnpm lint
+pnpm test
+```
 
-| Variable | Where set | Required |
-|---|---|---|
-| `MONGODB_URI` | Railway | ✅ Yes |
-| `JWT_SECRET` | Railway | ✅ Yes |
-| `JWT_EXPIRES_IN` | Railway | No (default `7d`) |
-| `WEB_ORIGIN` | Railway | No (default `http://localhost:3742`) |
-| `NEXT_PUBLIC_API_URL` | Vercel | ✅ Yes |
+The API e2e suite uses `mongodb-memory-server` and covers authentication, projects, tasks, comments, authorization, assignment, activity, and task numbering behavior.
+
+## Deployment
+
+### Backend: Railway
+
+The repository deploys the API with the root `Dockerfile` and [railway.json](railway.json). The image activates pnpm `10.33.0`, installs with the frozen lockfile, builds only the API through Turborepo, and starts the existing API production script.
+
+Configure these Railway variables:
+
+```text
+MONGODB_URI=<MongoDB Atlas connection string>
+JWT_SECRET=<long random secret>
+JWT_EXPIRES_IN=7d
+WEB_ORIGIN=https://<your-vercel-app>.vercel.app
+```
+
+The API must listen on Railway's injected `PORT` value in production. Do not put database credentials or JWT secrets in the Dockerfile.
+
+### Frontend: Vercel
+
+Set the web application's public API URL to the deployed Railway service:
+
+```text
+NEXT_PUBLIC_API_URL=https://<your-api>.railway.app
+```
+
+The browser then follows this path:
+
+```text
+Vercel Next.js app
+    → NEXT_PUBLIC_API_URL
+    → Railway NestJS API
+    → MongoDB Atlas
+```
+
+## Development Accounts
+
+The seed data includes these local-only accounts. They all use `Password123!`.
+
+| Account               | Role/context                            |
+| --------------------- | --------------------------------------- |
+| `ammar@example.com`   | Organization owner                      |
+| `sarah@example.com`   | Organization admin                      |
+| `ahmed@example.com`   | Project manager on `ENG`                |
+| `magd@example.com`    | Member of `ENG` and `WEB`               |
+| `outside@example.com` | Authenticated user with no organization |
+
+Do not use these credentials in production.
+
+## Roadmap
+
+The current implementation delivers the core product workflow. With additional time, the next improvements would be:
+
+1. Refine the frontend visual system further with richer responsive states, stronger accessibility coverage, keyboard-first workflows, and more polished task-board interactions.
+2. Add an opt-in AI assistant behind the NestJS API for task summarization, suggested task breakdowns, comment drafting, and project-status insights.
+3. Add provider abstraction, authorization, rate limiting, auditability, and cost controls before exposing any AI capability to production users.
+
+AI integration is intentionally future work. It is not currently connected, and no AI credentials or provider calls are present in the frontend.
+
+## License
+
+This repository is an assessment project. Add the project's intended license before distributing it publicly.
