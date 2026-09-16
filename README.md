@@ -103,7 +103,7 @@ match if you move it.
 Run one at a time if you prefer:
 
 ```bash
-pnpm --filter @projectflow/api dev
+pnpm --filter api dev
 pnpm --filter @projectflow/web dev
 ```
 
