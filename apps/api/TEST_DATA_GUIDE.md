@@ -4,79 +4,96 @@ This guide explains how to use the test data functionality in the database manag
 
 ## Quick Start
 
-1. **Build the script:**
-   ```bash
-   cd apps/api
-   npm run build
-   ```
+The test data is automatically created when you deploy to Railway or run the seed script locally.
 
-2. **Insert test data:**
-   ```bash
-   npm run db:manage insert-test-data
-   ```
+### Option 1: Railway Deployment (Automatic)
+When you deploy to Railway, the seed script runs automatically and creates test users.
+
+### Option 2: Local Development
+```bash
+cd apps/api
+npm run build
+npm run seed
+```
 
 ## What Gets Created
 
-When you run `insert-test-data`, the following test data is created:
+When the seed script runs, the following test data is created:
 
-### Users (3 users)
-- **test1@example.com** - Organization Owner
-- **test2@example.com** - Organization Admin  
-- **test3@example.com** - Organization Member
+### Users (5 users)
+- **ammar@example.com** - Organization Owner
+- **sarah@example.com** - Organization Admin
+- **ahmed@example.com** - Organization Member
+- **magd@example.com** - Organization Member
+- **outside@example.com** - No organization access
 
-**Password for all test users:** `TestPassword123!`
+**Password for all test users:** `Password123!`
 
 ### Organization (1 organization)
-- **Test Organization** (slug: `test-organization`)
-- Owner: test1@example.com
+- **Acme Software** (slug: `acme-software`)
+- Owner: ammar@example.com
 
 ### Projects (2 projects)
-- **Test Project 1** (key: `TST`) - For development and testing
-- **Test Project 2** (key: `DEV`) - For QA testing
+- **Internal Platform** (key: `ENG`) - Core internal tooling
+- **Customer Portal** (key: `WEB`) - Customer-facing portal
 
-### Tasks (4 tasks)
-- **TST-1**: Test authentication flow (IN_PROGRESS, HIGH priority)
-- **TST-2**: Test user management (TODO, MEDIUM priority)
-- **TST-3**: Test project dashboard (DONE, LOW priority)
-- **DEV-1**: Test API endpoints (IN_REVIEW, URGENT priority)
+### Tasks (9 tasks)
+#### Internal Platform Tasks:
+- **ENG-1**: Implement authentication refresh flow (IN_PROGRESS, HIGH priority)
+- **ENG-2**: Improve project dashboard responsiveness (TODO, MEDIUM priority)
+- **ENG-3**: Add project member search (TODO, LOW priority)
+- **ENG-4**: Fix mobile sidebar behaviour (IN_REVIEW, URGENT priority)
+- **ENG-5**: Improve API error handling (DONE, MEDIUM priority)
+- **ENG-6**: Document local development setup (TODO, LOW priority)
 
-### Comments (3 comments)
-- Comments on TST-1 from test2 and test1
-- Comment on TST-2 from test3
+#### Customer Portal Tasks:
+- **WEB-1**: Billing history pagination (IN_PROGRESS, HIGH priority)
+- **WEB-2**: Support dark mode in the portal shell (TODO, LOW priority)
+- **WEB-3**: Account deletion confirmation step (IN_REVIEW, URGENT priority)
+
+### Comments (5 comments)
+- Comments on ENG-1 from sarah and ammar
+- Comment on ENG-2 from magd
+- Comment on ENG-4 from ahmed
+- Comment on WEB-3 from magd
 
 ## Usage Examples
 
 ### 1. Testing Authentication
 ```bash
-# Insert test data
-npm run db:manage insert-test-data
+# The seed script runs automatically on Railway deployment
+# Or run locally: npm run seed
 
 # Use these credentials to test login:
-# Email: test1@example.com
-# Password: TestPassword123!
+# Email: ammar@example.com
+# Password: Password123!
 ```
 
 ### 2. Testing Project Management
 ```bash
 # The test data includes:
-# - 2 projects with different keys (TST, DEV)
-# - 4 tasks with various statuses and priorities
-# - 3 users with different organization roles
+# - 2 projects with different keys (ENG, WEB)
+# - 9 tasks with various statuses and priorities
+# - 4 users with different organization roles
 ```
 
 ### 3. Testing Task Comments
 ```bash
 # Test data includes comments on tasks:
-# - TST-1 has 2 comments
-# - TST-2 has 1 comment
+# - ENG-1 has 2 comments
+# - ENG-2 has 1 comment
+# - ENG-4 has 1 comment
+# - WEB-3 has 1 comment
 ```
 
 ### 4. Testing Role-Based Access
 ```bash
 # Test different permission levels:
-# - test1@example.com: Organization Owner (full access)
-# - test2@example.com: Organization Admin (admin access)
-# - test3@example.com: Organization Member (member access)
+# - ammar@example.com: Organization Owner (full access)
+# - sarah@example.com: Organization Admin (admin access)
+# - ahmed@example.com: Organization Member (member access)
+# - magd@example.com: Organization Member (member access)
+# - outside@example.com: No organization access (for testing permissions)
 ```
 
 ## Cleaning Up Test Data
@@ -99,8 +116,8 @@ npm run db:manage list-users
 # 1. Create collections
 npm run db:manage create-collections
 
-# 2. Insert test data
-npm run db:manage insert-test-data
+# 2. Insert test data (or use seed script)
+npm run seed
 
 # 3. Verify data
 npm run db:manage list-collections
@@ -110,7 +127,7 @@ npm run db:manage list-users
 ### Adding Custom Test Users
 ```bash
 # Insert standard test data first
-npm run db:manage insert-test-data
+npm run seed
 
 # Add additional custom test users
 npm run db:manage add-user --name="Custom Test User" --email="custom@example.com" --password="CustomPassword123!"
@@ -118,21 +135,21 @@ npm run db:manage add-user --name="Custom Test User" --email="custom@example.com
 
 ## Test Data Summary
 
-After running `insert-test-data`, you'll have:
+After running the seed script, you'll have:
 
 | Collection | Documents | Description |
 |------------|-----------|-------------|
-| users | 3 | Test users with different roles |
-| organizations | 1 | Test organization |
-| organization-members | 3 | Organization memberships |
-| projects | 2 | Test projects |
-| project-members | 3 | Project memberships |
-| tasks | 4 | Test tasks with various states |
-| comments | 3 | Test comments on tasks |
+| users | 5 | Test users with different roles |
+| organizations | 1 | Test organization (Acme Software) |
+| organization-members | 4 | Organization memberships |
+| projects | 2 | Test projects (Internal Platform, Customer Portal) |
+| project-members | 4 | Project memberships |
+| tasks | 9 | Test tasks with various states |
+| comments | 5 | Test comments on tasks |
 
 ## Security Notes
 
-- Test data uses a simple password (`TestPassword123!`) for convenience
+- Test data uses a simple password (`Password123!`) for convenience
 - **Never use test credentials in production**
 - Test data should only be used in development/staging environments
 - Remember to clean up test data before deploying to production
@@ -140,11 +157,11 @@ After running `insert-test-data`, you'll have:
 ## Troubleshooting
 
 ### Duplicate Data Error
-If you run `insert-test-data` multiple times, you might get duplicate key errors:
+If you run the seed script multiple times, you might get duplicate key errors:
 ```bash
 # Solution: Drop collections first
 npm run db:manage drop-collections
-npm run db:manage insert-test-data
+npm run seed
 ```
 
 ### Connection Issues
@@ -159,12 +176,12 @@ If collections don't exist:
 ```bash
 # Create collections first
 npm run db:manage create-collections
-npm run db:manage insert-test-data
+npm run seed
 ```
 
 ## Next Steps
 
-After inserting test data, you can:
+After the seed script runs, you can:
 
 1. **Test your API endpoints** using the test users
 2. **Verify data relationships** through the web interface
@@ -172,4 +189,23 @@ After inserting test data, you can:
 4. **Develop and test features** with realistic data
 5. **Run automated tests** against the test dataset
 
-For more database management commands, see [DATABASE_MANAGEMENT.md](./DATABASE_MANAGEMENT.md)
+## Quick Reference
+
+### Login Credentials
+```
+Email: ammar@example.com
+Password: Password123!
+```
+
+### Alternative Test Users
+- sarah@example.com (Admin)
+- ahmed@example.com (Member)
+- magd@example.com (Member)
+- outside@example.com (No organization access)
+
+All use the same password: `Password123!`
+
+For more database management commands, check the database management script help:
+```bash
+npm run db:manage help
+```
