@@ -9,6 +9,8 @@ import { formatDate } from '@/lib/format';
 import { useTask } from '../hooks';
 import { TaskPriorityBadge } from './task-priority-badge';
 import { TaskStatusSelect } from './task-status-select';
+import { ActivityTimeline } from './activity-timeline';
+import { AssigneeSelect } from './assignee-select';
 
 interface TaskViewProps {
   projectId: string;
@@ -88,6 +90,13 @@ export function TaskView({ projectId, taskId }: TaskViewProps) {
 
           <div className="space-y-1.5">
             <h2 className="text-[11px] font-medium uppercase tracking-wide text-subtle-foreground">
+              Assignee
+            </h2>
+            <AssigneeSelect taskId={task.id} projectId={projectId} assignee={task.assignee ?? null} />
+          </div>
+
+          <div className="space-y-1.5">
+            <h2 className="text-[11px] font-medium uppercase tracking-wide text-subtle-foreground">
               Created by
             </h2>
             <div className="flex items-center gap-2">
@@ -102,8 +111,20 @@ export function TaskView({ projectId, taskId }: TaskViewProps) {
             </h2>
             <p className="text-[13px] text-muted-foreground">{formatDate(task.createdAt)}</p>
           </div>
+
+          <div className="space-y-1.5">
+            <h2 className="text-[11px] font-medium uppercase tracking-wide text-subtle-foreground">
+              Updated
+            </h2>
+            <p className="text-[13px] text-muted-foreground">{formatDate(task.updatedAt)}</p>
+          </div>
         </aside>
       </div>
+
+      <section aria-label="Activity">
+        <h2 className="mb-2 text-sm font-semibold text-foreground">Activity</h2>
+        <ActivityTimeline taskId={taskId} projectId={projectId} />
+      </section>
     </div>
   );
 }

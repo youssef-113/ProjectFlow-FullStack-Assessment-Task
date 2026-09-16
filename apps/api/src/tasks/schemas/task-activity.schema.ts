@@ -12,6 +12,8 @@ export enum TaskActivityType {
 export interface AssigneeChangedMetadata {
   from: string | null;
   to: string | null;
+  /** Index signature required for compatibility with Record<string, unknown>. */
+  [key: string]: unknown;
 }
 
 @Schema({ timestamps: { createdAt: true, updatedAt: false }, collection: 'task_activities' })

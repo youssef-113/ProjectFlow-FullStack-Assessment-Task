@@ -1,5 +1,6 @@
 import type {
   Paginated,
+  TaskActivityResponse,
   TaskDetail,
   TaskPriority,
   TaskStatus,
@@ -38,6 +39,19 @@ export function updateTaskStatus(taskId: string, status: TaskStatus): Promise<Ta
   return apiRequest<TaskDetail>(`/tasks/${taskId}/status`, {
     method: 'PATCH',
     body: { status },
+  });
+}
+
+export function updateTaskAssignee(taskId: string, assigneeId: string | null): Promise<TaskDetail> {
+  return apiRequest<TaskDetail>(`/tasks/${taskId}/assignee`, {
+    method: 'PATCH',
+    body: { assigneeId },
+  });
+}
+
+export function fetchTaskActivity(taskId: string, cursor?: string, limit = 25) {
+  return apiRequest<TaskActivityResponse>(`/tasks/${taskId}/activity`, {
+    query: { cursor, limit },
   });
 }
 

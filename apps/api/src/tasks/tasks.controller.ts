@@ -10,11 +10,13 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import type { Paginated, TaskDetail, TaskSummary } from '@projectflow/shared';
+import type { Paginated, TaskActivityResponse, TaskDetail, TaskSummary } from '@projectflow/shared';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { toObjectId } from '../common/utils/object-id';
 import { CreateTaskDto } from './dto/create-task.dto';
+import { ListActivityQueryDto } from './dto/list-activity.dto';
 import { ListTasksQueryDto } from './dto/list-tasks.dto';
+import { UpdateTaskAssigneeDto } from './dto/update-task-assignee.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
 import { UpdateTaskStatusDto } from './dto/update-task-status.dto';
 import { TasksService } from './tasks.service';
@@ -76,9 +78,35 @@ export class TasksController {
     return this.tasksService.updateStatus(toObjectId(taskId, 'task id'), toObjectId(userId, 'user id'), dto);
   }
 
+  @Patch('tasks/:taskId/assignee')
+  assignTask(
+    @Param('taskId') taskId: string,
+    @CurrentUser('id') userId: string,
+    @Body() dto: UpdateTaskAssigneeDto,
+  ): Promise<TaskDetail> {
+    return this.tasksService.assignTask(
+      toObjectId(taskId, 'task id'),
+      toObjectId(userId, 'user id'),
+      dto,
+    );
+  }
+
   @Delete('tasks/:taskId')
   @HttpCode(HttpStatus.NO_CONTENT)
   remove(@Param('taskId') taskId: string, @CurrentUser('id') userId: string): Promise<void> {
     return this.tasksService.remove(toObjectId(taskId, 'task id'), toObjectId(userId, 'user id'));
+  }
+
+  @Get('tasks/:taskId/activity')
+  findActivity(
+    @Param('taskId') taskId: string,
+    @CurrentUser('id') userId: string,
+    @Query() query: ListActivityQueryDto,
+  ): Promise<TaskActivityResponse> {
+    return this.tasksService.findActivity(
+      toObjectId(taskId, 'task id'),
+      toObjectId(userId, 'user id'),
+      query,
+    );
   }
 }

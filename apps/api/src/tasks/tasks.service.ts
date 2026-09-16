@@ -1,27 +1,38 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { type FilterQuery, Model, Types } from 'mongoose';
-import type { Paginated, TaskDetail, TaskSummary } from '@projectflow/shared';
+import type { Paginated, TaskActivityResponse, TaskDetail, TaskSummary } from '@projectflow/shared';
 import { toUserSummary } from '../common/utils/serialize';
 import { Comment, type CommentDocument } from '../comments/schemas/comment.schema';
-import { canManage, ProjectAccessService } from '../projects/project-access.service';
+import { canManage, canView, ProjectAccessService } from '../projects/project-access.service';
 import { Project, type ProjectDocument } from '../projects/schemas/project.schema';
+import { ProjectMembersService } from '../project-members/project-members.service';
 import { UsersService } from '../users/users.service';
 import type { CreateTaskDto } from './dto/create-task.dto';
+import type { ListActivityQueryDto } from './dto/list-activity.dto';
 import type { ListTasksQueryDto } from './dto/list-tasks.dto';
+import type { UpdateTaskAssigneeDto } from './dto/update-task-assignee.dto';
 import type { UpdateTaskDto } from './dto/update-task.dto';
 import type { UpdateTaskStatusDto } from './dto/update-task-status.dto';
+import {
+  TaskActivity,
+  type TaskActivityDocument,
+  TaskActivityType,
+} from './schemas/task-activity.schema';
 import { Task, type TaskDocument } from './schemas/task.schema';
 import { TaskSequence, type TaskSequenceDocument } from './schemas/task-sequence.schema';
+
 
 @Injectable()
 export class TasksService {
   constructor(
     @InjectModel(Task.name) private readonly taskModel: Model<TaskDocument>,
     @InjectModel(TaskSequence.name) private readonly taskSequenceModel: Model<TaskSequenceDocument>,
+    @InjectModel(TaskActivity.name) private readonly taskActivityModel: Model<TaskActivityDocument>,
     @InjectModel(Project.name) private readonly projectModel: Model<ProjectDocument>,
     @InjectModel(Comment.name) private readonly commentModel: Model<CommentDocument>,
     private readonly projectAccessService: ProjectAccessService,
+    private readonly projectMembersService: ProjectMembersService,
     private readonly usersService: UsersService,
   ) {}
 
@@ -131,6 +142,137 @@ export class TasksService {
     await Promise.all([this.commentModel.deleteMany({ taskId: task._id }), task.deleteOne()]);
   }
 
+  async assignTask(
+    taskId: Types.ObjectId,
+    actorId: Types.ObjectId,
+    dto: UpdateTaskAssigneeDto,
+  ): Promise<TaskDetail> {
+    const task = await this.findTaskOrFail(taskId);
+    const access = await this.projectAccessService.assertCanView(task.projectId, actorId);
+
+    // Capture previous assignee before any mutation.
+    const previousAssignee = task.assignee ?? null;
+
+    if (dto.assigneeId === null) {
+      // Unassignment: any project member may remove the assignee.
+      // Skip if already unassigned — no change, no activity.
+      if (previousAssignee === null) {
+        return this.toDetail(task, access.project);
+      }
+
+      task.assignee = null;
+      await task.save();
+
+      await this.taskActivityModel.create({
+        taskId: task._id,
+        actorId,
+        type: TaskActivityType.TASK_ASSIGNEE_CHANGED,
+        metadata: { from: previousAssignee.toString(), to: null },
+      });
+
+      return this.toDetail(task, access.project);
+    }
+
+    const assigneeId = new Types.ObjectId(dto.assigneeId);
+
+    // Regular MEMBERs may only assign themselves.
+    if (!canManage(access) && !assigneeId.equals(actorId)) {
+      throw new ForbiddenException('Members can only assign tasks to themselves');
+    }
+
+    // Verify the assignee has access to this project (project member OR elevated org role).
+    // Using the same access-check logic as the rest of the system so that org OWNER/ADMIN
+    // can be assigned without needing an explicit project_members row.
+    const assigneeAccess = await this.projectAccessService.resolve(task.projectId, assigneeId);
+    if (!canView(assigneeAccess)) {
+      throw new ForbiddenException('The assignee must be a member of this project');
+    }
+
+    // Skip if the assignee is not changing — no mutation, no activity.
+    if (previousAssignee !== null && assigneeId.equals(previousAssignee)) {
+      return this.toDetail(task, access.project);
+    }
+
+    task.assignee = assigneeId;
+    await task.save();
+
+    await this.taskActivityModel.create({
+      taskId: task._id,
+      actorId,
+      type: TaskActivityType.TASK_ASSIGNEE_CHANGED,
+      metadata: {
+        from: previousAssignee ? previousAssignee.toString() : null,
+        to: assigneeId.toString(),
+      },
+    });
+
+    return this.toDetail(task, access.project);
+  }
+
+  async findActivity(
+    taskId: Types.ObjectId,
+    userId: Types.ObjectId,
+    query: ListActivityQueryDto,
+  ): Promise<TaskActivityResponse> {
+    const task = await this.findTaskOrFail(taskId);
+    await this.projectAccessService.assertCanView(task.projectId, userId);
+
+    // Build query with optional cursor pagination.
+    // Use a plain filter object to avoid Mongoose chain type limitations.
+    const filter: Record<string, unknown> = { taskId };
+
+    if (query.cursor) {
+      const parts = query.cursor.split('_');
+      // Cursor format is internally generated as `${isoDate}_${objectId}`.
+      // parts[0] is always a valid ISO date string.
+      const cursorCreatedAt = parts[0]!;
+      const cursorId = parts[1];
+      filter['createdAt'] = { $lt: new Date(cursorCreatedAt) };
+      if (cursorId) {
+        filter['_id'] = { $lt: new Types.ObjectId(cursorId) };
+      }
+    }
+
+    const activities = await this.taskActivityModel
+      .find(filter)
+      .sort({ createdAt: -1, _id: -1 })
+      .limit(query.limit + 1) // Fetch one extra to determine if there are more results
+      .exec();
+
+    // Determine if there are more results
+    const hasMore = activities.length > query.limit;
+    const items = hasMore ? activities.slice(0, query.limit) : activities;
+
+    // Generate next cursor if there are more results
+    let nextCursor: string | null = null;
+    if (hasMore && items.length > 0) {
+      // items.length > 0 is guaranteed by the enclosing if-guard.
+      const lastItem = items[items.length - 1]!;
+      nextCursor = `${lastItem.createdAt.toISOString()}_${lastItem._id.toString()}`;
+    }
+
+    // Populate actor information
+    const actorIds = items.map((activity) => activity.actorId);
+    const users = await this.usersService.findManyByIds(actorIds);
+    const usersById = new Map(users.map((user) => [user._id.toString(), user]));
+
+    const activityItems = items.map((activity) => ({
+      id: activity._id.toString(),
+      type: activity.type,
+      actor: {
+        id: activity.actorId.toString(),
+        name: usersById.get(activity.actorId.toString())?.name ?? 'Unknown user',
+      },
+      metadata: activity.metadata,
+      createdAt: activity.createdAt.toISOString(),
+    }));
+
+    return {
+      items: activityItems,
+      nextCursor,
+    };
+  }
+
   async findTaskOrFail(taskId: Types.ObjectId): Promise<TaskDocument> {
     const task = await this.taskModel.findById(taskId).exec();
     if (!task) {
@@ -144,8 +286,18 @@ export class TasksService {
       return [];
     }
 
-    const [creators, commentRows] = await Promise.all([
-      this.usersService.findManyByIds(tasks.map((task) => task.createdBy)),
+    // Collect all user IDs we need: creators + assignees (deduped).
+    const assigneeIds = tasks
+      .map((t) => t.assignee)
+      .filter((id): id is Types.ObjectId => id != null);
+
+    const allUserIds = [
+      ...tasks.map((t) => t.createdBy),
+      ...assigneeIds,
+    ];
+
+    const [users, commentRows] = await Promise.all([
+      this.usersService.findManyByIds(allUserIds),
       this.commentModel
         .aggregate<{
           _id: Types.ObjectId;
@@ -157,7 +309,7 @@ export class TasksService {
         .exec(),
     ]);
 
-    const creatorsById = new Map(creators.map((user) => [user._id.toString(), user]));
+    const usersById = new Map(users.map((user) => [user._id.toString(), user]));
     const commentCounts = new Map(commentRows.map((row) => [row._id.toString(), row.count]));
 
     return tasks.map((task) => ({
@@ -169,7 +321,8 @@ export class TasksService {
       status: task.status,
       priority: task.priority,
       commentCount: commentCounts.get(task._id.toString()) ?? 0,
-      createdBy: toCreatorSummary(creatorsById.get(task.createdBy.toString())),
+      createdBy: toUserSummaryOrDeleted(usersById.get(task.createdBy.toString())),
+      assignee: task.assignee ? toUserSummaryOrNull(usersById.get(task.assignee.toString())) : null,
       createdAt: task.createdAt.toISOString(),
       updatedAt: task.updatedAt.toISOString(),
     }));
@@ -235,6 +388,12 @@ const DELETED_USER = {
   avatarUrl: null,
 };
 
-function toCreatorSummary(user: Parameters<typeof toUserSummary>[0] | undefined) {
+/** Returns a user summary or a deleted-user sentinel (for createdBy, which is always set). */
+function toUserSummaryOrDeleted(user: Parameters<typeof toUserSummary>[0] | undefined) {
   return user ? toUserSummary(user) : DELETED_USER;
+}
+
+/** Returns a user summary or null (for assignee, which can legitimately be absent). */
+function toUserSummaryOrNull(user: Parameters<typeof toUserSummary>[0] | undefined) {
+  return user ? toUserSummary(user) : null;
 }

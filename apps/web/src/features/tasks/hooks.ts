@@ -1,7 +1,7 @@
 'use client';
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { Paginated, TaskDetail, TaskStatus, TaskSummary } from '@projectflow/shared';
+import { useMutation, useQuery, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
+import type { Paginated, TaskActivityResponse, TaskDetail, TaskStatus, TaskSummary } from '@projectflow/shared';
 import { queryKeys } from '@/lib/query-keys';
 import {
   createTask,
@@ -10,6 +10,8 @@ import {
   fetchTask,
   updateTaskStatus,
 } from './api';
+import { updateTaskAssignee } from './api';
+import { fetchTaskActivity } from './api';
 
 export function useProjectTasks(projectId: string) {
   return useQuery<Paginated<TaskSummary>>({
@@ -48,7 +50,33 @@ export function useUpdateTaskStatus(taskId: string, projectId: string) {
     mutationFn: (status) => updateTaskStatus(taskId, status),
     onSuccess: async (task) => {
       queryClient.setQueryData(queryKeys.task(taskId), task);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.projectTasks(projectId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.taskActivity(taskId) }),
+      ]);
+    },
+  });
+}
+
+export function useUpdateTaskAssignee(taskId: string, projectId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation<TaskDetail, Error, string | null>({
+    mutationFn: (assigneeId) => updateTaskAssignee(taskId, assigneeId ?? null),
+    onSuccess: async (task) => {
+      queryClient.setQueryData(queryKeys.task(taskId), task);
       await queryClient.invalidateQueries({ queryKey: queryKeys.projectTasks(projectId) });
     },
+  });
+}
+
+export function useTaskActivity(taskId: string) {
+  return useInfiniteQuery<TaskActivityResponse, Error>({
+    queryKey: queryKeys.taskActivity(taskId),
+    queryFn: ({ pageParam }) =>
+      fetchTaskActivity(taskId, pageParam as string | undefined),
+    initialPageParam: undefined,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+    enabled: taskId.length > 0,
   });
 }

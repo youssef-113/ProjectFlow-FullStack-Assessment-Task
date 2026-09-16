@@ -239,7 +239,9 @@ POST   /projects/:projectId/tasks
 GET    /tasks/:taskId
 PATCH  /tasks/:taskId
 PATCH  /tasks/:taskId/status
+PATCH  /tasks/:taskId/assignee
 DELETE /tasks/:taskId
+GET    /tasks/:taskId/activity
 
 GET    /tasks/:taskId/comments
 POST   /tasks/:taskId/comments
@@ -265,3 +267,58 @@ parsing.
 
 Components are server components by default; `"use client"` is added only where
 interactivity or hooks require it.
+
+---
+
+## Production Deployment
+
+### 1. MongoDB Atlas
+
+1. Create a free cluster at [mongodb.com/cloud/atlas](https://www.mongodb.com/cloud/atlas).
+2. Add a database user with read/write access.
+3. Whitelist `0.0.0.0/0` (Railway uses dynamic IPs) or add Railway's outbound IPs.
+4. Copy the connection string from **Connect → Drivers** — it looks like:
+   ```
+   mongodb+srv://<user>:<password>@<cluster>.mongodb.net/<dbname>?retryWrites=true&w=majority
+   ```
+5. Use this as `MONGODB_URI` in Railway.
+
+### 2. Railway (backend API)
+
+1. Create a new Railway project and connect this GitHub repository.
+2. Set the **root directory** to `/` (repository root) — the `railway.json` at the root drives the build.
+3. Set these environment variables in the Railway dashboard:
+
+   | Variable | Value |
+   |---|---|
+   | `MONGODB_URI` | Atlas connection string |
+   | `JWT_SECRET` | Random secret (≥ 32 chars) — `openssl rand -base64 48` |
+   | `JWT_EXPIRES_IN` | `7d` (or your preferred lifetime) |
+   | `WEB_ORIGIN` | `https://<your-app>.vercel.app` |
+
+   Railway injects `PORT` automatically — do **not** set it manually.
+
+4. Deploy. The API will be accessible at `https://<your-api>.railway.app`.
+
+### 3. Vercel (frontend)
+
+1. Create a new Vercel project and import this GitHub repository.
+2. Leave the **root directory** as `/` (repository root) — `vercel.json` handles the monorepo build.
+3. Set this environment variable in the Vercel dashboard:
+
+   | Variable | Value |
+   |---|---|
+   | `NEXT_PUBLIC_API_URL` | `https://<your-api>.railway.app` |
+
+4. Deploy. The frontend will be accessible at `https://<your-app>.vercel.app`.
+5. Copy the Vercel URL back into Railway's `WEB_ORIGIN` so CORS allows it.
+
+### Required environment variables summary
+
+| Variable | Where set | Required |
+|---|---|---|
+| `MONGODB_URI` | Railway | ✅ Yes |
+| `JWT_SECRET` | Railway | ✅ Yes |
+| `JWT_EXPIRES_IN` | Railway | No (default `7d`) |
+| `WEB_ORIGIN` | Railway | No (default `http://localhost:3742`) |
+| `NEXT_PUBLIC_API_URL` | Vercel | ✅ Yes |

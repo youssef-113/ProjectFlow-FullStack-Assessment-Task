@@ -23,7 +23,8 @@ async function bootstrap(): Promise<void> {
     }),
   );
 
-  const port = configService.get<number>('API_PORT') ?? 4732;
+  // Railway and most PaaS platforms inject PORT. API_PORT is used for local dev.
+  const port = process.env.PORT ?? configService.get<number>('API_PORT') ?? 4732;
   await app.listen(port);
 
   new Logger('Bootstrap').log(`ProjectFlow API listening on http://localhost:${port}`);
